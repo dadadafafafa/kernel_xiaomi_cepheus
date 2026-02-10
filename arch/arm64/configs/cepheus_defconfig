@@ -6047,3 +6047,12 @@ CONFIG_MACH_XIAOMI_SM8150=y
 # Xiaomi board selection
 #
 CONFIG_MACH_XIAOMI_CEPHEUS=y
+
+# Depend
+CONFIG_INPUT_FF_MEMLESS=y
+# For universal use
+CONFIG_JOYSTICK_XPAD_FF=y
+# Sony Dual Shock HID
+CONFIG_HID_SONY=y
+# Sony Dual Shock Force Feedback
+CONFIG_HID_SONY_FF=y
