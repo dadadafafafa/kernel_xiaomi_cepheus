@@ -11,7 +11,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
           fetch-depth: 1
 
       - name: Install dependencies
@@ -46,12 +46,19 @@ jobs:
             ln -sf "$f" "arm/bin/$(basename "$f")"
           done
 
-      - name: Ensure AnyKernel3 exists
+      - name: Prepare missing folders
         run: |
-          if [ ! -d AnyKernel3 ] || [ ! -f AnyKernel3/tools/ak3-core.sh ]; then
-            rm -rf AnyKernel3
-            git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          fi
+          rm -rf AnyKernel3 KernelSU-Next
+
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+
+          mkdir KernelSU-Next
+          cd KernelSU-Next
+          git init
+          git remote add origin https://github.com/KernelSU-Next/KernelSU-Next.git
+          git fetch --depth=1 origin e8e6836425478ee44d026576f8127936d383ded5
+          git checkout FETCH_HEAD
+          cd ..
 
       - name: Build using original build.sh
         run: |
