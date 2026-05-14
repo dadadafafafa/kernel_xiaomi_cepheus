@@ -48,6 +48,8 @@ jobs:
 
       - name: Prepare missing folders
         run: |
+          set -e
+
           rm -rf AnyKernel3 KernelSU-Next
 
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
@@ -60,13 +62,55 @@ jobs:
           git checkout FETCH_HEAD
           cd ..
 
-      - name: Build using original build.sh
+      - name: Build kernel
         run: |
-          export KERNELDIR=/home/raystef66/kernel
-          bash ./build.sh
+          set -e
+
+          export TC="/home/raystef66/kernel/prebuilts"
+          export PATH="${TC}/clang-r416183b1/bin:${TC}/aarch64/bin:${TC}/arm/bin:$PATH"
+
+          export LLVM=1
+          export CC=clang
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export ARCH=arm64
+          export USE_CCACHE=1
+
+          make O=out ARCH=arm64 cepheus_defconfig
+
+          make ARCH=arm64 \
+            O=out \
+            CC=clang \
+            AR=llvm-ar \
+            LD=ld.lld \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            -j$(nproc)
+
+          ls -lh out/arch/arm64/boot/
+          test -s out/arch/arm64/boot/Image.gz-dtb
+
+      - name: Package kernel zip
+        run: |
+          set -e
+
+          FINAL_KERNEL_ZIP=InfiniR_cepheus_v2.01_A16_KSUN_susfs-v2.1.0_test.zip
+
+          cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/Image.gz-dtb
+          cp anykernel.sh AnyKernel3/anykernel.sh
+
+          test -s AnyKernel3/Image.gz-dtb
+
+          cd AnyKernel3
+          zip -r9 "../$FINAL_KERNEL_ZIP" * -x README README.md LICENSE .git/\*
+
+          cd ..
+          unzip -l "$FINAL_KERNEL_ZIP" | grep Image.gz-dtb
+          sha1sum "$FINAL_KERNEL_ZIP"
 
       - name: Upload kernel zip
         uses: actions/upload-artifact@v4
         with:
           name: InfiniR-cepheus-kernel
-          path: /home/raystef66/kernel/*.zip
+          path: InfiniR_cepheus_v2.01_A16_KSUN_susfs-v2.1.0_test.zip
