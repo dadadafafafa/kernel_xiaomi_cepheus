@@ -19,7 +19,7 @@ jobs:
           sudo apt update
           sudo apt install -y \
             build-essential bc bison flex libssl-dev libelf-dev \
-            git zip unzip ccache python3 curl \
+            git zip unzip ccache python3 curl pkg-config libyaml-dev \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
       - name: Prepare author toolchain path
