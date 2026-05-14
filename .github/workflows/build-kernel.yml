@@ -1,0 +1,98 @@
+name: Build cepheus kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            build-essential bc bison flex libssl-dev libelf-dev \
+            git zip unzip ccache python3 rsync curl \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+      - name: Prepare author-like toolchain path
+        run: |
+          sudo mkdir -p /home/raystef66/kernel/prebuilts
+          sudo chown -R $USER:$USER /home/raystef66/kernel
+
+          cd /home/raystef66/kernel/prebuilts
+
+          curl -L \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/141af4b7b36d1bb2a70b4ef2a65faf3b46253eb9/clang-r416183b1.tar.gz" \
+            -o clang-r416183b1.tar.gz
+
+          mkdir -p clang-r416183b1
+          tar -xf clang-r416183b1.tar.gz -C clang-r416183b1
+
+          mkdir -p aarch64/bin arm/bin
+
+          for f in /usr/bin/aarch64-linux-gnu-*; do
+            ln -sf "$f" "aarch64/bin/$(basename "$f")"
+          done
+
+          for f in /usr/bin/arm-linux-gnueabi-*; do
+            ln -sf "$f" "arm/bin/$(basename "$f")"
+          done
+
+      - name: Prepare AnyKernel3
+        run: |
+          if [ ! -d AnyKernel3 ] || [ ! -f AnyKernel3/tools/ak3-core.sh ]; then
+            rm -rf AnyKernel3
+            git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          fi
+          cp anykernel.sh AnyKernel3/anykernel.sh
+
+      - name: Build with author environment
+        run: |
+          export KERNELDIR=/home/raystef66/kernel
+          export TC="/home/raystef66/kernel/prebuilts"
+          export PATH="${TC}/clang-r416183b1/bin:${TC}/aarch64/bin:${TC}/arm/bin:$PATH"
+
+          export LLVM=1
+          export CC=clang
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export ARCH=arm64
+          export USE_CCACHE=1
+
+          make O=out ARCH=arm64 cepheus_defconfig
+
+          make ARCH=arm64 \
+            O=out \
+            CC=clang \
+            AR=llvm-ar \
+            LD=ld.lld \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            -j$(nproc)
+
+      - name: Package AnyKernel zip
+        run: |
+          FINAL_KERNEL_ZIP=InfiniR_cepheus_v2.01_A16_KSUN_susfs-v2.1.0_test.zip
+
+          cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/Image.gz-dtb
+
+          cd AnyKernel3
+          zip -r9 "../$FINAL_KERNEL_ZIP" * -x README README.md LICENSE .git/\*
+
+          cd ..
+          sha1sum "$FINAL_KERNEL_ZIP"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: InfiniR-cepheus-author-env
+          path: InfiniR_cepheus_v2.01_A16_KSUN_susfs-v2.1.0_test.zip
