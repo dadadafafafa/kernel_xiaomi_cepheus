@@ -1,38 +1,65 @@
-# This is a basic workflow to help you get started with Actions
-name: build
+name: Build cepheus kernel
 
-# Controls when the action will run.
 on:
-  # Triggers the workflow on push events but only for the eleven branch
-  push:
-    tags:
-      - "*"
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
   build:
-    # The type of runner that the job will run on
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v2
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
 
-      - name: Build
+      - name: Install dependencies
         run: |
+          sudo apt update
+          sudo apt install -y \
+            build-essential bc bison flex libssl-dev libelf-dev \
+            git zip unzip ccache python3 curl \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+      - name: Prepare author toolchain path
+        run: |
+          sudo mkdir -p /home/raystef66/kernel/prebuilts
+          sudo chown -R $USER:$USER /home/raystef66/kernel
+
+          cd /home/raystef66/kernel/prebuilts
+
+          curl -L \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/141af4b7b36d1bb2a70b4ef2a65faf3b46253eb9/clang-r416183b1.tar.gz" \
+            -o clang-r416183b1.tar.gz
+
+          mkdir -p clang-r416183b1
+          tar -xf clang-r416183b1.tar.gz -C clang-r416183b1
+
+          mkdir -p aarch64/bin arm/bin
+
+          for f in /usr/bin/aarch64-linux-gnu-*; do
+            ln -sf "$f" "aarch64/bin/$(basename "$f")"
+          done
+
+          for f in /usr/bin/arm-linux-gnueabi-*; do
+            ln -sf "$f" "arm/bin/$(basename "$f")"
+          done
+
+      - name: Ensure AnyKernel3 exists
+        run: |
+          if [ ! -d AnyKernel3 ] || [ ! -f AnyKernel3/tools/ak3-core.sh ]; then
+            rm -rf AnyKernel3
+            git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          fi
+
+      - name: Build using original build.sh
+        run: |
+          export KERNELDIR=/home/raystef66/kernel
           bash ./build.sh
 
-      - name: Release
-        uses: "marvinpinto/action-automatic-releases@latest"
+      - name: Upload kernel zip
+        uses: actions/upload-artifact@v4
         with:
-          automatic_release_tag: "latest"
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "latest"
-          prerelease: false
-          files: |
-            out/*.zip
+          name: InfiniR-cepheus-kernel
+          path: /home/raystef66/kernel/*.zip
