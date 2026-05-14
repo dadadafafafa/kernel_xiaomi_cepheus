@@ -62,6 +62,12 @@ jobs:
           git checkout FETCH_HEAD
           cd ..
 
+      - name: Patch old host build variable
+        run: |
+          set -e
+          sed -i 's/HOSTLDLIBS_dtc/HOSTLOADLIBES_dtc/g' scripts/dtc/Makefile
+          grep -n 'HOSTLOADLIBES_dtc' scripts/dtc/Makefile
+
       - name: Build kernel
         run: |
           set -e
