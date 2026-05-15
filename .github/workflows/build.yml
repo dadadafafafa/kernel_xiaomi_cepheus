@@ -95,6 +95,10 @@ jobs:
           export KBUILD_BUILD_HOST=github
           export PATH="$GITHUB_WORKSPACE/prebuilts/clang-r416183b1/bin:$PATH"
 
+          export LLVM=1
+          export CC=clang
+          export CROSS_COMPILE=aarch64-linux-gnu-
+
           make O=out ARCH=arm64 cepheus_defconfig
 
           scripts/config --file out/.config -e KSU || true
@@ -107,9 +111,12 @@ jobs:
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+            AR=llvm-ar \
+            LD=ld.lld \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip
 
       - name: Package kernel zip
         run: |
