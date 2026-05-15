@@ -1,4 +1,11 @@
-name: Build cepheus SukiSU Ultra legacy 4.14
+name: Build cepheus SukiSU Ultra Fixed v4.1.2 legacy 4.14
+
+# 这个 workflow 固定使用一个已知能编译通过的 SukiSU Ultra 版本。
+# 如果想保持当前这套 4.14 老内核兼容补丁继续可用，请保持 SUKISU_REF 为 v4.1.2。
+# 如果后续想测试新版 SukiSU Ultra，优先只改 SUKISU_REF。
+# 升级后如果上游改了内核接口或文件结构，可能需要重新修下面的兼容补丁。
+env:
+  SUKISU_REF: v4.1.2
 
 on:
   workflow_dispatch:
@@ -50,9 +57,16 @@ jobs:
           set -e
           rm -rf AnyKernel3 KernelSU KernelSU-Next drivers/kernelsu
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+
+          # setup.sh 会把 SukiSU Ultra 安装到 KernelSU / drivers/kernelsu。
+          # setup.sh 默认跟随上游最新版，所以这里安装后立刻 checkout 到 SUKISU_REF。
+          # 当前 SUKISU_REF 固定为 v4.1.2，避免后续自动升级导致编译补丁失效。
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash
+          git -C KernelSU fetch --tags --force
+          git -C KernelSU checkout -f "${SUKISU_REF}"
           test -d KernelSU
           test -e drivers/kernelsu
+          git -C KernelSU describe --tags --always
 
       - name: Apply legacy 4.14 compatibility patches
         run: |
@@ -72,6 +86,8 @@ jobs:
           sed -i 's/TWA_RESUME/true/g' drivers/kernelsu/*.c
           sed -i 's/ksys_close(/sys_close(/g' drivers/kernelsu/*.c
           sed -i 's/ksys_unshare(/sys_unshare(/g' drivers/kernelsu/*.c
+          grep -q '#include <linux/sched/task.h>' drivers/kernelsu/allowlist.c || \
+            sed -i '/#include <linux\/task_work.h>/a #include <linux/sched/task.h>' drivers/kernelsu/allowlist.c
 
           python3 <<'PY'
           from pathlib import Path
@@ -331,7 +347,7 @@ jobs:
       - name: Package AnyKernel3 zip
         run: |
           set -e
-          ZIP_NAME="InfiniR_cepheus_A16_SukiSU_Ultra_legacy4.14_${GITHUB_RUN_NUMBER}.zip"
+          ZIP_NAME="InfiniR_cepheus_A16_SukiSU_Ultra_${SUKISU_REF}_legacy4.14_${GITHUB_RUN_NUMBER}.zip"
           rm -rf out_zip
           mkdir -p out_zip
           cp -r AnyKernel3/* out_zip/
