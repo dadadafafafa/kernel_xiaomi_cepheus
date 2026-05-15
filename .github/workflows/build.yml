@@ -37,8 +37,8 @@ jobs:
         run: |
           set -e
 
-          mkdir -p /home/raystef66/kernel/prebuilts
-          cd /home/raystef66/kernel/prebuilts
+          mkdir -p "$GITHUB_WORKSPACE/prebuilts"
+          cd "$GITHUB_WORKSPACE/prebuilts"
 
           if [ ! -d clang-r416183b1 ]; then
             mkdir clang-r416183b1
@@ -93,7 +93,7 @@ jobs:
           export SUBARCH=arm64
           export KBUILD_BUILD_USER=raystef66
           export KBUILD_BUILD_HOST=github
-          export PATH="/home/raystef66/kernel/prebuilts/clang-r416183b1/bin:$PATH"
+          export PATH="$GITHUB_WORKSPACE/prebuilts/clang-r416183b1/bin:$PATH"
 
           make O=out ARCH=arm64 cepheus_defconfig
 
