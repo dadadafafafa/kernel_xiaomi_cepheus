@@ -1,11 +1,14 @@
-name: Build cepheus kernel
+name: Build cepheus kernel SukiSU
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 17.0
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout source
@@ -18,109 +21,117 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y \
-            build-essential bc bison flex libssl-dev libelf-dev \
-            git zip unzip ccache python3 curl pkg-config libyaml-dev \
+            bc bison build-essential cpio flex git kmod libssl-dev \
+            libelf-dev libncurses5-dev libncurses-dev lld llvm \
+            python3 python-is-python3 pypy wget curl zip unzip \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-            pypy
+            pkg-config libyaml-dev
 
           sudo ln -sf /usr/bin/pypy /usr/local/bin/python2
-          python2 --version
 
       - name: Prepare author toolchain path
         run: |
-          sudo mkdir -p /home/raystef66/kernel/prebuilts
-          sudo chown -R $USER:$USER /home/raystef66/kernel
+          set -e
 
+          mkdir -p /home/raystef66/kernel/prebuilts
           cd /home/raystef66/kernel/prebuilts
 
-          curl -L \
-            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/141af4b7b36d1bb2a70b4ef2a65faf3b46253eb9/clang-r416183b1.tar.gz" \
-            -o clang-r416183b1.tar.gz
+          if [ ! -d clang-r416183b1 ]; then
+            mkdir clang-r416183b1
+            cd clang-r416183b1
+            curl -L "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/141af4b7b36d1bb2a70b4ef2a65faf3b46253eb9/clang-r416183b1.tar.gz" | tar -xz
+            cd ..
+          fi
 
-          mkdir -p clang-r416183b1
-          tar -xf clang-r416183b1.tar.gz -C clang-r416183b1
+          mkdir -p gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin
+          mkdir -p gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin
 
-          mkdir -p aarch64/bin arm/bin
+          ln -sf /usr/bin/aarch64-linux-gnu-gcc gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-gcc
+          ln -sf /usr/bin/aarch64-linux-gnu-ld gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-ld
+          ln -sf /usr/bin/aarch64-linux-gnu-ar gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-ar
+          ln -sf /usr/bin/aarch64-linux-gnu-objcopy gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-objcopy
+          ln -sf /usr/bin/aarch64-linux-gnu-objdump gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-objdump
+          ln -sf /usr/bin/aarch64-linux-gnu-strip gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-strip
 
-          for f in /usr/bin/aarch64-linux-gnu-*; do
-            ln -sf "$f" "aarch64/bin/$(basename "$f")"
-          done
+          ln -sf /usr/bin/arm-linux-gnueabi-gcc gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc
+          ln -sf /usr/bin/arm-linux-gnueabi-ld gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-ld
+          ln -sf /usr/bin/arm-linux-gnueabi-ar gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-ar
+          ln -sf /usr/bin/arm-linux-gnueabi-objcopy gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-objcopy
+          ln -sf /usr/bin/arm-linux-gnueabi-objdump gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-objdump
+          ln -sf /usr/bin/arm-linux-gnueabi-strip gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-strip
 
-          for f in /usr/bin/arm-linux-gnueabi-*; do
-            ln -sf "$f" "arm/bin/$(basename "$f")"
-          done
-
-      - name: Prepare missing folders
+      - name: Prepare AnyKernel3 and SukiSU Ultra
         run: |
           set -e
 
-          rm -rf AnyKernel3 KernelSU-Next
+          rm -rf AnyKernel3 KernelSU KernelSU-Next drivers/kernelsu
 
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
 
-          mkdir KernelSU-Next
-          cd KernelSU-Next
-          git init
-          git remote add origin https://github.com/KernelSU-Next/KernelSU-Next.git
-          git fetch --depth=1 origin e8e6836425478ee44d026576f8127936d383ded5
-          git checkout FETCH_HEAD
-          cd ..
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash
 
-      - name: Patch old host build variable
+          test -d KernelSU
+          test -e drivers/kernelsu
+
+      - name: Patch build compatibility
         run: |
           set -e
+
           sed -i 's/HOSTLDLIBS_dtc/HOSTLOADLIBES_dtc/g' scripts/dtc/Makefile
-          grep -n 'HOSTLOADLIBES_dtc' scripts/dtc/Makefile
+          sed -i 's/^kernel.string=.*/kernel.string=InfiniR SukiSU Ultra/' anykernel.sh
+          sed -i 's/^supported.versions=.*/supported.versions=10-16/' anykernel.sh
 
       - name: Build kernel
         run: |
           set -e
 
-          export TC="/home/raystef66/kernel/prebuilts"
-          export PATH="${TC}/clang-r416183b1/bin:${TC}/aarch64/bin:${TC}/arm/bin:$PATH"
-
-          export LLVM=1
-          export CC=clang
-          export CROSS_COMPILE=aarch64-linux-gnu-
           export ARCH=arm64
-          export USE_CCACHE=1
+          export SUBARCH=arm64
+          export KBUILD_BUILD_USER=raystef66
+          export KBUILD_BUILD_HOST=github
+          export PATH="/home/raystef66/kernel/prebuilts/clang-r416183b1/bin:$PATH"
 
           make O=out ARCH=arm64 cepheus_defconfig
 
-          make ARCH=arm64 \
-            O=out \
-            CC=clang \
-            AR=llvm-ar \
-            LD=ld.lld \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip \
-            -j$(nproc)
+          scripts/config --file out/.config -e KSU || true
+          scripts/config --file out/.config -e KSU_MANUAL_HOOK || true
 
-          ls -lh out/arch/arm64/boot/
-          test -s out/arch/arm64/boot/Image.gz-dtb
+          make O=out ARCH=arm64 olddefconfig
+
+          grep -E '^CONFIG_KSU=y' out/.config
+
+          make -j$(nproc) O=out \
+            ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
       - name: Package kernel zip
         run: |
           set -e
 
-          FINAL_KERNEL_ZIP=InfiniR_cepheus_v2.01_A16_KSUN_susfs-v2.1.0_test.zip
+          test -f out/arch/arm64/boot/Image.gz-dtb
 
-          cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/Image.gz-dtb
-          cp anykernel.sh AnyKernel3/anykernel.sh
+          rm -rf out_zip
+          mkdir -p out_zip
 
-          test -s AnyKernel3/Image.gz-dtb
+          cp -r AnyKernel3/* out_zip/
+          cp out/arch/arm64/boot/Image.gz-dtb out_zip/Image.gz-dtb
 
-          cd AnyKernel3
-          zip -r9 "../$FINAL_KERNEL_ZIP" * -x README README.md LICENSE .git/\*
+          if [ -f anykernel.sh ]; then
+            cp anykernel.sh out_zip/anykernel.sh
+          fi
 
+          cd out_zip
+          zip -r9 ../InfiniR_cepheus_v2.01_A16_SukiSU_Ultra_test.zip .
           cd ..
-          unzip -l "$FINAL_KERNEL_ZIP" | grep Image.gz-dtb
-          sha1sum "$FINAL_KERNEL_ZIP"
+
+          ls -lh InfiniR_cepheus_v2.01_A16_SukiSU_Ultra_test.zip
+          sha256sum InfiniR_cepheus_v2.01_A16_SukiSU_Ultra_test.zip
 
       - name: Upload kernel zip
         uses: actions/upload-artifact@v4
         with:
-          name: InfiniR-cepheus-kernel
-          path: InfiniR_cepheus_v2.01_A16_KSUN_susfs-v2.1.0_test.zip
+          name: InfiniR-cepheus-SukiSU-Ultra-kernel
+          path: InfiniR_cepheus_v2.01_A16_SukiSU_Ultra_test.zip
