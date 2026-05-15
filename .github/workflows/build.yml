@@ -23,11 +23,15 @@ jobs:
           sudo apt install -y \
             bc bison build-essential cpio flex git kmod libssl-dev \
             libelf-dev libncurses5-dev libncurses-dev lld llvm \
-            python3 python-is-python3 pypy wget curl zip unzip \
+            python3 python-is-python3 wget curl zip unzip bzip2 \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
             pkg-config libyaml-dev
 
-          sudo ln -sf /usr/bin/pypy /usr/local/bin/python2
+          curl -L "https://downloads.python.org/pypy/pypy2.7-v7.3.17-linux64.tar.bz2" -o /tmp/pypy2.tar.bz2
+          sudo mkdir -p /opt/pypy2
+          sudo tar -xjf /tmp/pypy2.tar.bz2 -C /opt/pypy2 --strip-components=1
+          sudo ln -sf /opt/pypy2/bin/pypy /usr/local/bin/python2
+          python2 --version
 
       - name: Prepare author toolchain path
         run: |
