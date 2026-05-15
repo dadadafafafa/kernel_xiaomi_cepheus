@@ -1,3 +1,6 @@
+#将 KernelSU-Next 从旧版本 (12349) 更新到 v3.1.0-legacy-susfs-v2 (33007).
+#支持 SUSFS v2.1.0，使用 sidex15 的 legacy-susfs-v2 分支，适用于非 GKI 4.x 内核.
+#KernelSU-Nextapp使用3.1.0
 name: Build cepheus kernel
 
 on:
