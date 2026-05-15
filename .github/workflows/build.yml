@@ -1,10 +1,11 @@
-name: Build cepheus kernel SukiSU123
+name: Build cepheus SukiSU Ultra legacy 4.14
 
 on:
   workflow_dispatch:
   push:
     branches:
       - 17.0
+      - main
 
 jobs:
   build:
@@ -19,6 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          set -e
           sudo apt update
           sudo apt install -y \
             bc bison build-essential cpio flex git kmod libssl-dev \
@@ -33,87 +35,288 @@ jobs:
           sudo ln -sf /opt/pypy2/bin/pypy /usr/local/bin/python2
           python2 --version
 
-      - name: Prepare author toolchain path
+      - name: Prepare Android clang
         run: |
           set -e
-
-          mkdir -p "$GITHUB_WORKSPACE/prebuilts"
-          cd "$GITHUB_WORKSPACE/prebuilts"
-
-          if [ ! -d clang-r416183b1 ]; then
-            mkdir clang-r416183b1
-            cd clang-r416183b1
-            curl -L "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/141af4b7b36d1bb2a70b4ef2a65faf3b46253eb9/clang-r416183b1.tar.gz" | tar -xz
-            cd ..
+          mkdir -p prebuilts/clang-r416183b1
+          if [ ! -x prebuilts/clang-r416183b1/bin/clang ]; then
+            curl -L "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/141af4b7b36d1bb2a70b4ef2a65faf3b46253eb9/clang-r416183b1.tar.gz" \
+              | tar -xz -C prebuilts/clang-r416183b1
           fi
-
-          mkdir -p gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin
-          mkdir -p gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin
-
-          ln -sf /usr/bin/aarch64-linux-gnu-gcc gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-gcc
-          ln -sf /usr/bin/aarch64-linux-gnu-ld gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-ld
-          ln -sf /usr/bin/aarch64-linux-gnu-ar gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-ar
-          ln -sf /usr/bin/aarch64-linux-gnu-objcopy gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-objcopy
-          ln -sf /usr/bin/aarch64-linux-gnu-objdump gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-objdump
-          ln -sf /usr/bin/aarch64-linux-gnu-strip gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-strip
-
-          ln -sf /usr/bin/arm-linux-gnueabi-gcc gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-gcc
-          ln -sf /usr/bin/arm-linux-gnueabi-ld gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-ld
-          ln -sf /usr/bin/arm-linux-gnueabi-ar gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-ar
-          ln -sf /usr/bin/arm-linux-gnueabi-objcopy gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-objcopy
-          ln -sf /usr/bin/arm-linux-gnueabi-objdump gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-objdump
-          ln -sf /usr/bin/arm-linux-gnueabi-strip gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-strip
+          prebuilts/clang-r416183b1/bin/clang --version | head -2
 
       - name: Prepare AnyKernel3 and SukiSU Ultra
         run: |
           set -e
-
           rm -rf AnyKernel3 KernelSU KernelSU-Next drivers/kernelsu
-
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash
-
           test -d KernelSU
           test -e drivers/kernelsu
 
-      - name: Patch build compatibility
+      - name: Apply legacy 4.14 compatibility patches
         run: |
           set -e
 
+          # Generic build fixes used by this 4.14 tree.
           sed -i 's/HOSTLDLIBS_dtc/HOSTLOADLIBES_dtc/g' scripts/dtc/Makefile
-          sed -i 's/^kernel.string=.*/kernel.string=InfiniR SukiSU Ultra/' anykernel.sh
+          sed -i 's/cmd_mkdtimg = python3/cmd_mkdtimg = python2/g' scripts/Makefile.lib
+          sed -i 's/^kernel.string=.*/kernel.string=InfiniR SukiSU Ultra legacy 4.14/' anykernel.sh
           sed -i 's/^supported.versions=.*/supported.versions=10-16/' anykernel.sh
 
+          # SukiSU source compatibility for this non-GKI 4.14 kernel.
           sed -i '/MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);/d' drivers/kernelsu/ksu.c
+          sed -i 's/#include <linux\/pgtable.h>/#include <asm\/pgtable.h>/g' drivers/kernelsu/sucompat.c drivers/kernelsu/util.c
+          sed -i 's/mmap_read_trylock(mm)/down_read_trylock(\&mm->mmap_sem)/g' drivers/kernelsu/util.c
+          sed -i 's/mmap_read_unlock(mm)/up_read(\&mm->mmap_sem)/g' drivers/kernelsu/util.c
+          sed -i 's/TWA_RESUME/true/g' drivers/kernelsu/*.c
+          sed -i 's/ksys_close(/sys_close(/g' drivers/kernelsu/*.c
+          sed -i 's/ksys_unshare(/sys_unshare(/g' drivers/kernelsu/*.c
 
-          grep -q '#include <linux/sched/task.h>' drivers/kernelsu/allowlist.c || sed -i '/#include <linux\/task_work.h>/a #include <linux/sched/task.h>' drivers/kernelsu/allowlist.c
-          sed -i 's/task_work_add(tsk, cb, TWA_RESUME)/task_work_add(tsk, cb, true)/g' drivers/kernelsu/allowlist.c
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path("drivers/kernelsu/util.h")
+          s = p.read_text()
+          if "#define strncpy_from_user_nofault" not in s:
+              s = s.replace(
+                  "#include <linux/types.h>\n",
+                  "#include <linux/types.h>\n#include <linux/uaccess.h>\n\n"
+                  "#ifndef strncpy_from_user_nofault\n"
+                  "#define strncpy_from_user_nofault strncpy_from_unsafe_user\n"
+                  "#endif\n\n"
+                  "#ifndef copy_from_user_nofault\n"
+                  "#define copy_from_user_nofault copy_from_user\n"
+                  "#endif\n\n"
+                  "#ifndef copy_to_user_nofault\n"
+                  "#define copy_to_user_nofault copy_to_user\n"
+                  "#endif\n\n",
+                  1,
+              )
+              p.write_text(s)
 
-      - name: Build kernel
+          p = Path("drivers/kernelsu/seccomp_cache.h")
+          s = p.read_text()
+          if "static inline void ksu_seccomp_allow_cache" not in s:
+              s = s.replace(
+                  "#endif\n\n#endif",
+                  "#else\n"
+                  "static inline void ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr) {}\n"
+                  "static inline void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr) {}\n"
+                  "#endif\n\n#endif",
+                  1,
+              )
+              p.write_text(s)
+
+          p = Path("drivers/kernelsu/syscall_hook_manager.c")
+          s = p.read_text()
+          if "#define __NR_clone3 -1" not in s:
+              s = s.replace(
+                  '#include "syscall_hook_manager.h"\n',
+                  '#include "syscall_hook_manager.h"\n\n'
+                  "#ifndef __NR_clone3\n"
+                  "#define __NR_clone3 -1\n"
+                  "#endif\n",
+                  1,
+              )
+              p.write_text(s)
+
+          p = Path("drivers/kernelsu/manual_su.c")
+          s = p.read_text()
+          if "#include <linux/random.h>" not in s:
+              s = s.replace("#include <linux/binfmts.h>\n", "#include <linux/binfmts.h>\n#include <linux/random.h>\n", 1)
+              p.write_text(s)
+          PY
+
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("drivers/kernelsu/pkg_observer.c")
+          s = p.read_text()
+          if ".handle_inode_event" in s:
+              s = re.sub(
+                  r"static int ksu_handle_inode_event\(.*?static const struct fsnotify_ops ksu_ops = \{\n    \.handle_inode_event = ksu_handle_inode_event,\n\};\n",
+                  '''static int ksu_handle_event(struct fsnotify_group *group, struct inode *inode,
+                                      struct fsnotify_mark *inode_mark,
+                                      struct fsnotify_mark *vfsmount_mark, u32 mask,
+                                      const void *data, int data_type,
+                                      const unsigned char *file_name, u32 cookie,
+                                      struct fsnotify_iter_info *iter_info)
+          {
+              if (!file_name)
+                  return 0;
+              if (mask & FS_ISDIR)
+                  return 0;
+              if (!strcmp(file_name, "packages.list")) {
+                  pr_info("packages.list detected: %d\\n", mask);
+                  track_throne(false);
+              }
+              return 0;
+          }
+
+          static const struct fsnotify_ops ksu_ops = {
+              .handle_event = ksu_handle_event,
+          };
+          ''',
+                  s,
+                  count=1,
+                  flags=re.S,
+              )
+              s = s.replace("fsnotify_add_inode_mark(m, inode, 0)", "fsnotify_add_mark(m, inode, NULL, 0)")
+              p.write_text(s)
+          PY
+
+          # file_wrapper, dynamic sepolicy injection, and mount namespace code in current
+          # SukiSU Ultra target newer kernel internals. Use legacy stubs for this 4.14 build.
+          cp drivers/kernelsu/file_wrapper.c drivers/kernelsu/file_wrapper.c.sukisu-full.bak
+          cat > drivers/kernelsu/file_wrapper.c <<'EOF'
+          // SPDX-License-Identifier: GPL-2.0
+          #include <linux/errno.h>
+          #include <linux/fdtable.h>
+          #include <linux/file.h>
+          #include <linux/fs.h>
+          #include <linux/printk.h>
+
+          #include "file_wrapper.h"
+          #include "klog.h" // IWYU pragma: keep
+
+          int ksu_install_file_wrapper(int fd)
+          {
+              int out_fd;
+              struct file *orig_file = fget(fd);
+
+              if (!orig_file)
+                  return -EBADF;
+
+              out_fd = get_unused_fd_flags(O_CLOEXEC);
+              if (out_fd < 0) {
+                  fput(orig_file);
+                  return out_fd;
+              }
+
+              fd_install(out_fd, orig_file);
+              return out_fd;
+          }
+
+          void ksu_file_wrapper_init(void)
+          {
+              pr_info("file_wrapper: using legacy fd passthrough mode\n");
+          }
+          EOF
+
+          cp drivers/kernelsu/su_mount_ns.c drivers/kernelsu/su_mount_ns.c.sukisu-full.bak
+          cat > drivers/kernelsu/su_mount_ns.c <<'EOF'
+          // SPDX-License-Identifier: GPL-2.0
+          #include <linux/printk.h>
+          #include <linux/types.h>
+
+          #include "su_mount_ns.h"
+          #include "klog.h" // IWYU pragma: keep
+
+          void setup_mount_ns(int32_t ns_mode)
+          {
+              if (ns_mode != KSU_NS_INHERITED)
+                  pr_info("mount_ns: legacy 4.14 build keeps inherited namespace\n");
+          }
+          EOF
+
+          cp drivers/kernelsu/selinux/sepolicy.c drivers/kernelsu/selinux/sepolicy.c.sukisu-full.bak
+          cp drivers/kernelsu/selinux/rules.c drivers/kernelsu/selinux/rules.c.sukisu-full.bak
+          cat > drivers/kernelsu/selinux/sepolicy.c <<'EOF'
+          // SPDX-License-Identifier: GPL-2.0
+          #include "sepolicy.h"
+          EOF
+
+          cat > drivers/kernelsu/selinux/rules.c <<'EOF'
+          // SPDX-License-Identifier: GPL-2.0
+          #include <linux/errno.h>
+          #include <linux/printk.h>
+          #include <linux/uaccess.h>
+
+          #include "selinux.h"
+          #include "../klog.h" // IWYU pragma: keep
+
+          void apply_kernelsu_rules(void)
+          {
+              pr_info("sepolicy: dynamic rule injection disabled on legacy 4.14 build\n");
+          }
+
+          int handle_sepolicy(unsigned long arg3, void __user *arg4)
+          {
+              return -EOPNOTSUPP;
+          }
+          EOF
+
+          cat > drivers/kernelsu/legacy_compat.c <<'EOF'
+          // SPDX-License-Identifier: GPL-2.0
+          #include <linux/binfmts.h>
+          #include <linux/fs.h>
+          #include <linux/sched.h>
+          #include <linux/types.h>
+          #include <linux/uaccess.h>
+
+          #include "ksud.h"
+
+          int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
+                                       void *argv, void *envp, int *flags);
+
+          int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
+                                  void *envp, int *flags)
+          {
+              return ksu_handle_execveat_ksud(fd, filename_ptr, argv, envp, flags);
+          }
+
+          int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr,
+                                  size_t *count_ptr, loff_t **pos)
+          {
+              return 0;
+          }
+
+          void seccomp_filter_release(struct task_struct *tsk)
+          {
+          }
+          EOF
+
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path("drivers/kernelsu/Kbuild")
+          s = p.read_text()
+          if "legacy_compat.o" not in s:
+              s = s.replace("kernelsu-objs += tiny_sulog.o\n", "kernelsu-objs += tiny_sulog.o\nkernelsu-objs += legacy_compat.o\n", 1)
+              p.write_text(s)
+          PY
+
+      - name: Configure kernel
         run: |
           set -e
-
+          export PATH="$GITHUB_WORKSPACE/prebuilts/clang-r416183b1/bin:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
-          export KBUILD_BUILD_USER=raystef66
-          export KBUILD_BUILD_HOST=github
-          export PATH="$GITHUB_WORKSPACE/prebuilts/clang-r416183b1/bin:$PATH"
-
+          export KBUILD_BUILD_USER=github
+          export KBUILD_BUILD_HOST=actions
           export LLVM=1
           export CC=clang
           export CROSS_COMPILE=aarch64-linux-gnu-
 
           make O=out ARCH=arm64 cepheus_defconfig
-
           scripts/config --file out/.config -e KSU || true
-          scripts/config --file out/.config -e KSU_MANUAL_HOOK || true
-
+          scripts/config --file out/.config -e KSU_MANUAL_SU || true
+          scripts/config --file out/.config -d KPM || true
           make O=out ARCH=arm64 olddefconfig
+          grep -E '^CONFIG_KSU=y|^CONFIG_KSU_MANUAL_SU=y' out/.config
 
-          grep -E '^CONFIG_KSU=y' out/.config
+      - name: Build kernel
+        run: |
+          set -e
+          export PATH="/usr/local/bin:$GITHUB_WORKSPACE/prebuilts/clang-r416183b1/bin:$PATH"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export KBUILD_BUILD_USER=github
+          export KBUILD_BUILD_HOST=actions
+          export LLVM=1
+          export CC=clang
+          export CROSS_COMPILE=aarch64-linux-gnu-
 
-          make -j$(nproc) O=out \
+          make -j"$(nproc)" O=out \
             ARCH=arm64 \
             CC=clang \
             AR=llvm-ar \
@@ -123,31 +326,30 @@ jobs:
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip
 
-      - name: Package kernel zip
-        run: |
-          set -e
-
           test -f out/arch/arm64/boot/Image.gz-dtb
 
+      - name: Package AnyKernel3 zip
+        run: |
+          set -e
+          ZIP_NAME="InfiniR_cepheus_A16_SukiSU_Ultra_legacy4.14_${GITHUB_RUN_NUMBER}.zip"
           rm -rf out_zip
           mkdir -p out_zip
-
           cp -r AnyKernel3/* out_zip/
           cp out/arch/arm64/boot/Image.gz-dtb out_zip/Image.gz-dtb
-
-          if [ -f anykernel.sh ]; then
-            cp anykernel.sh out_zip/anykernel.sh
-          fi
-
+          cp anykernel.sh out_zip/anykernel.sh
           cd out_zip
-          zip -r9 ../InfiniR_cepheus_v2.01_A16_SukiSU_Ultra_test.zip .
+          zip -r9 "../${ZIP_NAME}" . >/dev/null
           cd ..
+          ls -lh "${ZIP_NAME}" out/arch/arm64/boot/Image.gz-dtb
+          sha256sum "${ZIP_NAME}" out/arch/arm64/boot/Image.gz-dtb
+          echo "ZIP_NAME=${ZIP_NAME}" >> "$GITHUB_ENV"
 
-          ls -lh InfiniR_cepheus_v2.01_A16_SukiSU_Ultra_test.zip
-          sha256sum InfiniR_cepheus_v2.01_A16_SukiSU_Ultra_test.zip
-
-      - name: Upload kernel zip
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: InfiniR-cepheus-SukiSU-Ultra-kernel
-          path: InfiniR_cepheus_v2.01_A16_SukiSU_Ultra_test.zip
+          name: cepheus-SukiSU-Ultra-legacy-4.14
+          path: |
+            ${{ env.ZIP_NAME }}
+            out/arch/arm64/boot/Image.gz-dtb
+            build_sukisu.log
+          if-no-files-found: warn
