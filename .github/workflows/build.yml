@@ -1,4 +1,4 @@
-name: Build cepheus kernel SukiSU
+name: Build cepheus kernel SukiSU123
 
 on:
   workflow_dispatch:
